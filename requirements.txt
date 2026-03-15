@@ -1,0 +1,11 @@
+# Gacha Game Monitor - Dependencies
+# 安裝指令: pip install -r requirements.txt
+
+# UI Framework
+flet>=0.25.0
+
+# Process Monitoring (Phase 3)
+psutil>=5.9.0
+
+# Type Hints Support (Python 3.14 內建，但明確列出)
+typing-extensions>=4.0.0
