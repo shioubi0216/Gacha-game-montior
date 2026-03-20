@@ -1,10 +1,7 @@
 """
 Gacha Game Monitor - 主程式
 
-這是應用程式的進入點，負責：
-- 初始化 Flet 應用程式
-- 設定整體 UI 佈局
-- 連接 Controller 和 View
+Flet 0.80+ 版本適配
 
 執行方式：
     python src/main.py
@@ -15,21 +12,17 @@ import sys
 from pathlib import Path
 
 # 將 src 目錄加入 Python 路徑
-# 這樣才能正確 import 我們的模組
 sys.path.insert(0, str(Path(__file__).parent))
 
 from models import Game, DEFAULT_GAMES
 from views import GameCard
 from controllers import GameController
+from services import SettingsService, NotificationService, TrayService
 
 
 def main(page: ft.Page) -> None:
-    """
-    Flet 應用程式的主函式
-
-    Args:
-        page: Flet 提供的頁面物件
-    """
+    """Flet 應用程式的主函式"""
+    
     # ========== 頁面設定 ==========
     page.title = "Gacha Game Monitor 🎮"
     page.theme_mode = ft.ThemeMode.DARK
@@ -40,13 +33,21 @@ def main(page: ft.Page) -> None:
     page.window.min_height = 500
     page.bgcolor = ft.Colors.BLUE_GREY_900
 
-    # ========== 初始化 Controller ==========
+    # ========== 初始化服務 ==========
     controller = GameController(data_path="data/games.json")
     games = controller.load_games()
+    
+    settings = SettingsService(settings_path="data/settings.json")
+    notification_service = NotificationService(check_interval=60)
+    notification_service.set_games(games)
+    
+    # ========== 狀態追蹤 ==========
+    state = {
+        "page_ready": False,
+        "tray_service": None,
+    }
 
     # ========== UI 元件 ==========
-
-    # 標題
     header = ft.Container(
         content=ft.Row(
             controls=[
@@ -60,28 +61,26 @@ def main(page: ft.Page) -> None:
             ],
             alignment=ft.MainAxisAlignment.CENTER,
         ),
-        margin=ft.margin.only(bottom=20),
+        margin=20,
     )
 
-    # 狀態訊息
-    status_text = ft.Text(
-        "",
-        size=14,
-        color=ft.Colors.GREEN_400,
-    )
-
-    # ========== 遊戲卡片列表（需要在事件處理之前宣告）==========
+    status_text = ft.Text("", size=14, color=ft.Colors.GREEN_400)
     game_cards: list[GameCard] = []
 
     def refresh_cards() -> None:
         """刷新所有卡片的顯示"""
-        for card in game_cards:
-            card.refresh()
+        if not state["page_ready"]:
+            return
+        try:
+            for card in game_cards:
+                card.refresh()
+            page.update()
+        except Exception:
+            pass
 
     # ========== 事件處理 ==========
 
     def on_launch_game(game: Game) -> None:
-        """處理遊戲啟動"""
         if not game.exe_path:
             status_text.value = f"⚠️ 請先設定 {game.name} 的執行檔路徑"
             status_text.color = ft.Colors.ORANGE_400
@@ -93,12 +92,10 @@ def main(page: ft.Page) -> None:
             else:
                 status_text.value = f"❌ 啟動 {game.name} 失敗"
                 status_text.color = ft.Colors.RED_400
-
         refresh_cards()
         page.update()
 
     def show_path_dialog(game: Game) -> None:
-        """顯示設定路徑的對話框"""
         path_field = ft.TextField(
             label="執行檔路徑",
             hint_text=r"例如: C:\Games\FGO\Fate.exe",
@@ -123,18 +120,14 @@ def main(page: ft.Page) -> None:
             content=path_field,
             actions=[
                 ft.TextButton("取消", on_click=close_dialog),
-                ft.ElevatedButton("儲存", on_click=save_path),
+                ft.Button("儲存", on_click=save_path),
             ],
         )
-
         page.overlay.append(dialog)
         dialog.open = True
         page.update()
 
     def show_stamina_dialog(game: Game) -> None:
-        """顯示記錄體力的對話框"""
-        
-        # 取得目前預估體力作為預設值
         current_estimate = game.get_current_stamina()
         default_value = str(current_estimate) if current_estimate else ""
         
@@ -146,12 +139,7 @@ def main(page: ft.Page) -> None:
             keyboard_type=ft.KeyboardType.NUMBER,
             autofocus=True,
         )
-        
-        error_text = ft.Text(
-            "",
-            size=12,
-            color=ft.Colors.RED_400,
-        )
+        error_text = ft.Text("", size=12, color=ft.Colors.RED_400)
 
         def close_dialog(e):
             dialog.open = False
@@ -165,15 +153,13 @@ def main(page: ft.Page) -> None:
                     page.update()
                     return
                 
-                # 記錄體力
                 controller.record_login(game, stamina)
+                notification_service.reset_notification(game.id)
                 status_text.value = f"✅ 已記錄 {game.name} 的 {game.stamina_name}：{stamina}"
                 status_text.color = ft.Colors.GREEN_400
-                
                 dialog.open = False
                 refresh_cards()
                 page.update()
-                
             except ValueError:
                 error_text.value = "請輸入有效的數字"
                 page.update()
@@ -182,37 +168,26 @@ def main(page: ft.Page) -> None:
             title=ft.Text(f"記錄 {game.name} 的 {game.stamina_name}"),
             content=ft.Column(
                 controls=[
-                    ft.Text(
-                        f"請輸入你目前在遊戲中看到的 {game.stamina_name} 數值：",
-                        size=14,
-                    ),
+                    ft.Text(f"請輸入目前的 {game.stamina_name} 數值：", size=14),
                     stamina_field,
                     error_text,
-                    ft.Text(
-                        f"💡 體力上限：{game.max_stamina}",
-                        size=12,
-                        color=ft.Colors.WHITE54,
-                    ),
+                    ft.Text(f"💡 上限：{game.max_stamina}", size=12, color=ft.Colors.WHITE54),
                 ],
                 tight=True,
                 spacing=10,
             ),
             actions=[
                 ft.TextButton("取消", on_click=close_dialog),
-                ft.ElevatedButton("儲存", on_click=save_stamina),
+                ft.Button("儲存", on_click=save_stamina),
             ],
         )
-
         page.overlay.append(dialog)
         dialog.open = True
         page.update()
 
     # ========== 建立遊戲卡片 ==========
-
     def create_cards() -> ft.Row:
-        """建立所有遊戲卡片"""
         game_cards.clear()
-
         for game in games:
             card = GameCard(
                 game=game,
@@ -220,8 +195,6 @@ def main(page: ft.Page) -> None:
                 on_record_stamina=show_stamina_dialog,
             )
             game_cards.append(card)
-
-        # 使用 wrap 讓卡片自動換行
         return ft.Row(
             controls=game_cards,
             wrap=True,
@@ -232,10 +205,8 @@ def main(page: ft.Page) -> None:
 
     cards_container = create_cards()
 
-    # ========== 設定區域 ==========
-
+    # ========== 設定面板 ==========
     def show_settings(e) -> None:
-        """顯示設定面板"""
         game_list = ft.Column(
             controls=[
                 ft.ListTile(
@@ -251,23 +222,61 @@ def main(page: ft.Page) -> None:
             ],
             scroll=ft.ScrollMode.AUTO,
         )
+        
+        notification_switch = ft.Switch(
+            value=settings.notifications_enabled,
+            active_color=ft.Colors.CYAN_400,
+        )
+        
+        def toggle_notifications(e):
+            settings.notifications_enabled = notification_switch.value
+        notification_switch.on_change = toggle_notifications
+        
+        def reset_close_behavior(e):
+            settings.close_to_tray = None
+            status_text.value = "✅ 已重置，下次關閉視窗時會再次詢問"
+            status_text.color = ft.Colors.GREEN_400
+            settings_dialog.open = False
+            page.update()
 
         def close_settings(e):
             settings_dialog.open = False
             page.update()
+        
+        def test_notification(e):
+            if notification_service.send_test_notification():
+                status_text.value = "✅ 測試通知已發送"
+                status_text.color = ft.Colors.GREEN_400
+            else:
+                status_text.value = "❌ 通知功能不可用"
+                status_text.color = ft.Colors.RED_400
+            page.update()
 
         settings_dialog = ft.AlertDialog(
-            title=ft.Text("遊戲設定"),
+            title=ft.Text("設定"),
             content=ft.Container(
-                content=game_list,
+                content=ft.Column(
+                    controls=[
+                        ft.Text("遊戲路徑", weight=ft.FontWeight.BOLD),
+                        game_list,
+                        ft.Divider(),
+                        ft.Text("通知設定", weight=ft.FontWeight.BOLD),
+                        ft.Row([
+                            ft.Text("體力滿時發送通知"),
+                            notification_switch,
+                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                        ft.Button("測試通知", icon=ft.Icons.NOTIFICATIONS, on_click=test_notification),
+                        ft.Divider(),
+                        ft.Text("其他設定", weight=ft.FontWeight.BOLD),
+                        ft.TextButton("重置「關閉視窗」行為", on_click=reset_close_behavior),
+                    ],
+                    scroll=ft.ScrollMode.AUTO,
+                ),
                 width=500,
-                height=400,
+                height=450,
             ),
-            actions=[
-                ft.TextButton("關閉", on_click=close_settings),
-            ],
+            actions=[ft.TextButton("關閉", on_click=close_settings)],
         )
-
         page.overlay.append(settings_dialog)
         settings_dialog.open = True
         page.update()
@@ -278,16 +287,13 @@ def main(page: ft.Page) -> None:
         tooltip="設定",
         on_click=show_settings,
     )
-    
-    # ========== 刷新按鈕 ==========
-    
+
     def refresh_all(e) -> None:
-        """手動刷新所有卡片"""
         refresh_cards()
         status_text.value = "🔄 已刷新"
         status_text.color = ft.Colors.CYAN_400
         page.update()
-    
+
     refresh_button = ft.IconButton(
         icon=ft.Icons.REFRESH,
         icon_color=ft.Colors.WHITE70,
@@ -295,45 +301,120 @@ def main(page: ft.Page) -> None:
         on_click=refresh_all,
     )
 
-    # ========== 組合頁面 ==========
+    # ========== 視窗關閉處理 ==========
+    
+    async def show_window_from_tray():
+        page.window.visible = True
+        page.window.focused = True
+        page.update()
+    
+    async def quit_application():
+        notification_service.stop()
+        if state["tray_service"]:
+            state["tray_service"].stop()
+        await page.window.destroy()
+    
+    def minimize_to_tray():
+        page.window.visible = False
+        page.update()
+        
+        if state["tray_service"] is None:
+            state["tray_service"] = TrayService(
+                on_show=lambda: page.run_task(show_window_from_tray),
+                on_quit=lambda: page.run_task(quit_application),
+            )
+            state["tray_service"].start()
+    
+    async def show_close_dialog():
+        remember_checkbox = ft.Checkbox(label="記住我的選擇", value=True)
+        
+        async def close_and_quit(e):
+            if remember_checkbox.value:
+                settings.close_to_tray = False
+            close_dialog.open = False
+            page.update()
+            await quit_application()
+        
+        def close_and_minimize(e):
+            if remember_checkbox.value:
+                settings.close_to_tray = True
+            close_dialog.open = False
+            page.update()
+            minimize_to_tray()
+        
+        def cancel_close(e):
+            close_dialog.open = False
+            page.update()
+        
+        close_dialog = ft.AlertDialog(
+            title=ft.Text("關閉視窗"),
+            content=ft.Column(
+                controls=[
+                    ft.Text("你想要怎麼處理？"),
+                    ft.Container(height=10),
+                    remember_checkbox,
+                ],
+                tight=True,
+            ),
+            actions=[
+                ft.TextButton("取消", on_click=cancel_close),
+                ft.Button("最小化到托盤", icon=ft.Icons.MINIMIZE, on_click=close_and_minimize),
+                ft.Button(
+                    "退出程式",
+                    icon=ft.Icons.CLOSE,
+                    on_click=close_and_quit,
+                    style=ft.ButtonStyle(bgcolor=ft.Colors.RED_700),
+                ),
+            ],
+        )
+        page.overlay.append(close_dialog)
+        close_dialog.open = True
+        page.update()
+    
+    async def handle_window_event(e):
+        if "CLOSE" in str(e.type):
+            close_to_tray = settings.close_to_tray
+            
+            if close_to_tray is None:
+                await show_close_dialog()
+            elif close_to_tray:
+                minimize_to_tray()
+            else:
+                await quit_application()
+    
+    page.window.prevent_close = True
+    page.window.on_event = handle_window_event
 
+    # ========== 組合頁面 ==========
     page.add(
         ft.Column(
             controls=[
-                # 頂部工具列
                 ft.Row(
-                    controls=[
-                        ft.Container(expand=True),  # 彈性空間
-                        refresh_button,
-                        settings_button,
-                    ],
+                    controls=[ft.Container(expand=True), refresh_button, settings_button],
                 ),
                 header,
-                # 狀態訊息
-                ft.Container(
-                    content=status_text,
-                    margin=ft.margin.only(bottom=10),
-                ),
-                # 遊戲卡片區
-                ft.Container(
-                    content=cards_container,
-                    expand=True,
-                ),
-                # 底部說明
+                ft.Container(content=status_text, margin=10),
+                ft.Container(content=cards_container, expand=True),
                 ft.Container(
                     content=ft.Text(
-                        "💡 點擊「記錄體力」輸入當前體力 → 點擊「啟動遊戲」打開遊戲",
+                        "💡 點擊「記錄體力」輸入當前體力 → 體力滿時會收到通知",
                         size=12,
                         color=ft.Colors.WHITE54,
                     ),
-                    margin=ft.margin.only(top=10),
+                    margin=10,
                 ),
             ],
             expand=True,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         )
     )
+    
+    # ========== 啟動服務 ==========
+    state["page_ready"] = True
+    notification_service.on_check(refresh_cards)
+    if settings.notifications_enabled:
+        notification_service.start()
 
 
 if __name__ == "__main__":
-    ft.app(target=main)
+    ft.app(main)
