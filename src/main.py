@@ -35,9 +35,9 @@ def main(page: ft.Page) -> None:
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 20
     page.window.width = 1000
-    page.window.height = 700
+    page.window.height = 750
     page.window.min_width = 600
-    page.window.min_height = 400
+    page.window.min_height = 500
     page.bgcolor = ft.Colors.BLUE_GREY_900
 
     # ========== 初始化 Controller ==========
@@ -70,6 +70,14 @@ def main(page: ft.Page) -> None:
         color=ft.Colors.GREEN_400,
     )
 
+    # ========== 遊戲卡片列表（需要在事件處理之前宣告）==========
+    game_cards: list[GameCard] = []
+
+    def refresh_cards() -> None:
+        """刷新所有卡片的顯示"""
+        for card in game_cards:
+            card.refresh()
+
     # ========== 事件處理 ==========
 
     def on_launch_game(game: Game) -> None:
@@ -86,7 +94,6 @@ def main(page: ft.Page) -> None:
                 status_text.value = f"❌ 啟動 {game.name} 失敗"
                 status_text.color = ft.Colors.RED_400
 
-        # 刷新所有卡片
         refresh_cards()
         page.update()
 
@@ -124,9 +131,83 @@ def main(page: ft.Page) -> None:
         dialog.open = True
         page.update()
 
-    # ========== 建立遊戲卡片 ==========
+    def show_stamina_dialog(game: Game) -> None:
+        """顯示記錄體力的對話框"""
+        
+        # 取得目前預估體力作為預設值
+        current_estimate = game.get_current_stamina()
+        default_value = str(current_estimate) if current_estimate else ""
+        
+        stamina_field = ft.TextField(
+            label=f"當前 {game.stamina_name}",
+            hint_text=f"0 ~ {game.max_stamina}",
+            value=default_value,
+            width=200,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            autofocus=True,
+        )
+        
+        error_text = ft.Text(
+            "",
+            size=12,
+            color=ft.Colors.RED_400,
+        )
 
-    game_cards: list[GameCard] = []
+        def close_dialog(e):
+            dialog.open = False
+            page.update()
+
+        def save_stamina(e):
+            try:
+                stamina = int(stamina_field.value)
+                if stamina < 0 or stamina > game.max_stamina:
+                    error_text.value = f"請輸入 0 ~ {game.max_stamina} 之間的數字"
+                    page.update()
+                    return
+                
+                # 記錄體力
+                controller.record_login(game, stamina)
+                status_text.value = f"✅ 已記錄 {game.name} 的 {game.stamina_name}：{stamina}"
+                status_text.color = ft.Colors.GREEN_400
+                
+                dialog.open = False
+                refresh_cards()
+                page.update()
+                
+            except ValueError:
+                error_text.value = "請輸入有效的數字"
+                page.update()
+
+        dialog = ft.AlertDialog(
+            title=ft.Text(f"記錄 {game.name} 的 {game.stamina_name}"),
+            content=ft.Column(
+                controls=[
+                    ft.Text(
+                        f"請輸入你目前在遊戲中看到的 {game.stamina_name} 數值：",
+                        size=14,
+                    ),
+                    stamina_field,
+                    error_text,
+                    ft.Text(
+                        f"💡 體力上限：{game.max_stamina}",
+                        size=12,
+                        color=ft.Colors.WHITE54,
+                    ),
+                ],
+                tight=True,
+                spacing=10,
+            ),
+            actions=[
+                ft.TextButton("取消", on_click=close_dialog),
+                ft.ElevatedButton("儲存", on_click=save_stamina),
+            ],
+        )
+
+        page.overlay.append(dialog)
+        dialog.open = True
+        page.update()
+
+    # ========== 建立遊戲卡片 ==========
 
     def create_cards() -> ft.Row:
         """建立所有遊戲卡片"""
@@ -136,6 +217,7 @@ def main(page: ft.Page) -> None:
             card = GameCard(
                 game=game,
                 on_launch=on_launch_game,
+                on_record_stamina=show_stamina_dialog,
             )
             game_cards.append(card)
 
@@ -147,11 +229,6 @@ def main(page: ft.Page) -> None:
             run_spacing=16,
             alignment=ft.MainAxisAlignment.CENTER,
         )
-
-    def refresh_cards() -> None:
-        """刷新所有卡片的顯示"""
-        for card in game_cards:
-            card.refresh()
 
     cards_container = create_cards()
 
@@ -201,6 +278,22 @@ def main(page: ft.Page) -> None:
         tooltip="設定",
         on_click=show_settings,
     )
+    
+    # ========== 刷新按鈕 ==========
+    
+    def refresh_all(e) -> None:
+        """手動刷新所有卡片"""
+        refresh_cards()
+        status_text.value = "🔄 已刷新"
+        status_text.color = ft.Colors.CYAN_400
+        page.update()
+    
+    refresh_button = ft.IconButton(
+        icon=ft.Icons.REFRESH,
+        icon_color=ft.Colors.WHITE70,
+        tooltip="刷新",
+        on_click=refresh_all,
+    )
 
     # ========== 組合頁面 ==========
 
@@ -211,6 +304,7 @@ def main(page: ft.Page) -> None:
                 ft.Row(
                     controls=[
                         ft.Container(expand=True),  # 彈性空間
+                        refresh_button,
                         settings_button,
                     ],
                 ),
@@ -228,7 +322,7 @@ def main(page: ft.Page) -> None:
                 # 底部說明
                 ft.Container(
                     content=ft.Text(
-                        "💡 點擊設定按鈕 (右上角齒輪) 來設定遊戲執行檔路徑",
+                        "💡 點擊「記錄體力」輸入當前體力 → 點擊「啟動遊戲」打開遊戲",
                         size=12,
                         color=ft.Colors.WHITE54,
                     ),
