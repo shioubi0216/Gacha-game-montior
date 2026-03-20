@@ -144,7 +144,7 @@ DEFAULT_GAMES: list[dict] = [
     {
         "id": "blue_archive",
         "name": "蔚藍檔案",
-        "max_stamina": 999,
+        "max_stamina": 240,
         "stamina_per_minute": 1/6,  # 6 分鐘回 1 點
         "stamina_name": "AP",
     },
@@ -158,21 +158,21 @@ DEFAULT_GAMES: list[dict] = [
     {
         "id": "fgo",
         "name": "FGO 台服",
-        "max_stamina": 144,  # 依等級不同，這是大約值
+        "max_stamina": 140,  # 依等級不同，這是大約值
         "stamina_per_minute": 1/5,  # 5 分鐘回 1 點
-        "stamina_name": "AP",
+        "stamina_name": "體力",
     },
     {
         "id": "nikke",
-        "name": "妮姬 台服",
-        "max_stamina": 200,
-        "stamina_per_minute": 1/6,  # 6 分鐘回 1 點
-        "stamina_name": "體力",
+        "name": "妮姬",
+        "max_stamina": 24,
+        "stamina_per_minute": 1/60,  # 6 分鐘回 1 點
+        "stamina_name": "基地點數",
     },
     {
         "id": "star_rail",
         "name": "星穹鐵道",
-        "max_stamina": 240,
+        "max_stamina": 300,
         "stamina_per_minute": 1/6,  # 6 分鐘回 1 點
         "stamina_name": "開拓力",
     },
