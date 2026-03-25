@@ -20,6 +20,7 @@ Thumbs.db
 
 # Project specific
 data/games.json
+data/settings.json
 
 # Distribution / packaging
 dist/

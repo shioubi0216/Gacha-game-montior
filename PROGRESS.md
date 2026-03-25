@@ -16,7 +16,7 @@
 - 系統托盤：pystray + Pillow
 - 系統通知：plyer
 
-**目前狀態**：Phase 2 完成！體力記錄、系統托盤、通知功能已實作。
+**目前狀態**：Phase 3 完成！進程監控、自動彈窗記錄、登入提醒已實作。
 
 ---
 
@@ -29,6 +29,7 @@
 | FGO 台服 | AP | 140 | 5 分鐘/1 點 |
 | 妮姬 台服 | 體力 | 24 | 60 分鐘/1 點 |
 | 星穹鐵道 | 開拓力 | 300 | 6 分鐘/1 點 |
+| 戰雙帕彌什 | 體力 | 240 | 6 分鐘/1 點 |
 
 ---
 
@@ -57,16 +58,24 @@
 - [x] 用戶設定持久化（settings.json）
 - [x] Flet 0.80+ API 適配
 
-### Phase 3: 自動化與進階功能（待開發）
-- [ ] 自動偵測遊戲 Process（開啟/關閉）
-- [ ] 自動偵測已安裝遊戲路徑
-- [ ] 星穹鐵道 HoYoLab API 串接（可選）
-- [ ] 視窗置底模式（桌面小工具）
+### Phase 3: 進程監控與自動化 ✅ 完成
+- [x] 新增戰雙帕彌什遊戲（240 體力，6min/1）
+- [x] 卡片固定高度 190px + no_wrap 防止文字撐高
+- [x] ProcessMonitor 從 async 重寫為 threading
+- [x] 遊戲關閉自動彈窗記錄體力（跳過也會記錄登入時間）
+- [x] 登入提醒通知（預設 20 小時閾值，可自訂）
+- [x] 過期卡片紅色邊框 + 紅色文字提示
+- [x] 支援模擬器命令列參數比對（MuMu Player）
+- [x] 建立 CLAUDE.md 專案說明書
+- [x] 建立 `/commit` slash command
 
-### Phase 4: 發布（待開發）
-- [ ] 打包成 .exe（PyInstaller）
-- [ ] 製作安裝程式或免安裝版
-- [ ] 撰寫完整 README 和使用說明
+### Phase 4: 產品化與進階功能（下一步）
+- [ ] HoYoLab API 整合（星穹鐵道即時體力，免手動輸入）
+- [ ] PyInstaller 打包成 .exe
+- [ ] 自訂遊戲支持（新增不在預設清單的遊戲）
+- [ ] Discord Webhook 通知
+- [ ] 桌面 Widget 模式（always-on-top 小視窗）
+- [ ] 自動偵測已安裝遊戲路徑
 
 ---
 
@@ -123,6 +132,22 @@ gachagamemonitor/
 - [x] 實作 TrayService（系統托盤 + 右鍵選單）
 - [x] 實作關閉視窗行為選擇對話框
 - [x] 解決 Flet 0.80+ API 變更問題（詳見下方踩坑紀錄）
+
+### 2026-03-25 (Session 4)
+
+**Phase 3 - 進程監控與自動化**
+- [x] 新增戰雙帕彌什（pgr）遊戲到 DEFAULT_GAMES 和 games.json
+- [x] 卡片固定高度 190px + no_wrap + ELLIPSIS 修正 UI 不一致
+- [x] 建立 CLAUDE.md 專案說明書（Claude Code 每次對話自動載入）
+- [x] 重寫 ProcessMonitor：async → threading，與 NotificationService 一致
+- [x] 實作遊戲關閉自動彈窗（show_game_closed_prompt）
+- [x] 實作登入提醒通知（_check_login_reminders）
+- [x] 實作過期卡片紅色邊框視覺指示
+- [x] 新增 login_reminder_hours 欄位（預設 20 小時）
+- [x] 修正 run_task coroutine function 問題（_make_exit_callback 工廠函式）
+- [x] 新增模擬器支援：_parse_exe_path 解析帶參數的 exe_path
+- [x] 診斷 MuMu Player 進程：確認應監控 MuMuNxDevice.exe 而非 MuMuNxMain.exe
+- [x] 建立 /commit slash command
 
 ---
 
@@ -227,6 +252,48 @@ TrayService(
 
 ---
 
+### 坑 6: `page.run_task()` 必須接收 coroutine function
+
+**問題**：進程監控偵測到遊戲關閉，但彈窗沒出現
+
+**錯誤訊息**：
+```
+handler must be a coroutine function
+```
+
+**原因**：`page.run_task(lambda: on_game_exited(gid))` 的 lambda 回傳的是 coroutine object，不是 coroutine function
+
+**解決方案**：使用工廠函式包裝
+```python
+def _make_exit_callback(gid: str):
+    async def _handler():
+        await on_game_exited(gid)
+    return lambda game_id: page.run_task(_handler)
+```
+
+---
+
+### 坑 7: 模擬器遊戲的進程偵測
+
+**問題**：FGO 透過 MuMu Player 模擬器開啟，設定 exe_path 後關閉 FGO 不會觸發彈窗
+
+**診斷過程**：用 psutil 掃描所有 MuMu 相關進程，發現：
+- `MuMuNxMain.exe` — 模擬器主程式，一直在跑（不會隨 app 關閉）
+- `MuMuNxDevice.exe -p com.xiaomeng.fategrandorder` — 特定 app 的虛擬裝置
+
+**結論**：
+1. 在模擬器內關閉 app 不會讓任何系統進程消失（psutil 偵測不到）
+2. 關閉模擬器視窗才會讓 `MuMuNxDevice.exe` 進程消失
+3. exe_path 需要帶命令列參數，用 `_parse_exe_path()` 以 `.exe` 為分界拆分路徑與參數
+4. 比對時用 `proc.cmdline()` 確認包含特定 package name
+
+**正確的 exe_path 設定**：
+```
+E:\MuMuPlayerGlobal\nx_device\12.0\shell\MuMuNxDevice.exe -p com.xiaomeng.fategrandorder
+```
+
+---
+
 ## 💡 學到的重要觀念
 
 ### Debug 技巧
@@ -244,13 +311,24 @@ TrayService(
 
 ---
 
-## 💡 想法暫存區
+## 💡 未來優化方向（按優先度排序）
 
-- 未來可以加入 Discord Webhook 通知
-- 考慮用 SQLite 取代 JSON（當資料變複雜時）
+### 高價值（建議優先）
+- **HoYoLab API 整合**：串接星穹鐵道即時體力查詢，免手動輸入。需要使用者提供 HoYoLab cookie/token。API endpoint: `https://bbs-api-os.hoyolab.com/game_record/hkrpg/api/note`
+- **PyInstaller 打包成 .exe**：分享給朋友使用，不需要安裝 Python 環境
+- **自訂遊戲支持**：讓使用者新增不在預設清單的遊戲（輸入名稱、體力上限、回復速率）
+
+### 中等價值
+- **Discord Webhook 通知**：體力滿/登入提醒推送到 Discord 頻道
+- **SQLite 取代 JSON**：資料量增加或新增歷史紀錄功能時遷移
+- **桌面 Widget 模式**：always-on-top 小視窗，精簡顯示各遊戲體力
+- **自動偵測已安裝遊戲路徑**：掃描常見安裝目錄或 Steam library
+
+### 探索性
+- 多語言介面（i18n）
+- 體力消耗歷史圖表（matplotlib 或 Flet Charts）
+- 每日登入行事曆視覺化
 - 可以做成 System Tray 常駐程式 ✅ 已完成
-- 支援自訂遊戲（讓用戶新增不在預設清單的遊戲）
-- 支援多語言介面
 
 ---
 

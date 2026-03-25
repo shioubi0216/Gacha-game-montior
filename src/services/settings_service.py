@@ -19,6 +19,8 @@ class SettingsService:
         "close_to_tray": None,  # None = 尚未詢問, True = 最小化, False = 關閉
         "notifications_enabled": True,
         "check_interval_seconds": 60,  # 檢查體力的間隔
+        "process_monitor_enabled": True,  # 是否啟用進程監控
+        "login_reminder_enabled": True,  # 是否啟用登入提醒
     }
     
     def __init__(self, settings_path: str = "data/settings.json"):
@@ -69,3 +71,21 @@ class SettingsService:
     @notifications_enabled.setter
     def notifications_enabled(self, value: bool) -> None:
         self.set("notifications_enabled", value)
+
+    @property
+    def process_monitor_enabled(self) -> bool:
+        """是否啟用進程監控"""
+        return self.settings.get("process_monitor_enabled", True)
+
+    @process_monitor_enabled.setter
+    def process_monitor_enabled(self, value: bool) -> None:
+        self.set("process_monitor_enabled", value)
+
+    @property
+    def login_reminder_enabled(self) -> bool:
+        """是否啟用登入提醒"""
+        return self.settings.get("login_reminder_enabled", True)
+
+    @login_reminder_enabled.setter
+    def login_reminder_enabled(self, value: bool) -> None:
+        self.set("login_reminder_enabled", value)

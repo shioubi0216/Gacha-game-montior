@@ -33,6 +33,9 @@ class Game:
     stamina_per_minute: float = 0.2           # 每分鐘恢復體力 (預設 5 分鐘回 1 點)
     stamina_name: str = "體力"                # 體力的遊戲內名稱（AP、體力、開拓力等）
     
+    # 登入提醒
+    login_reminder_hours: Optional[float] = None  # None = 不提醒, 例如 20.0 = 20 小時後提醒
+
     # 狀態追蹤
     last_login: Optional[datetime] = None     # 上次登入時間
     last_stamina: Optional[int] = None        # 上次登入時的體力值
@@ -93,6 +96,13 @@ class Game:
             days = int(elapsed.total_seconds() / 86400)
             return f"{days} 天前"
     
+    def is_login_overdue(self) -> bool:
+        """檢查是否已超過提醒時間未登入"""
+        if self.login_reminder_hours is None or self.last_login is None:
+            return False
+        elapsed_hours = (datetime.now() - self.last_login).total_seconds() / 3600
+        return elapsed_hours >= self.login_reminder_hours
+
     def record_login(self, stamina: Optional[int] = None) -> None:
         """
         記錄一次登入
@@ -114,6 +124,7 @@ class Game:
             "max_stamina": self.max_stamina,
             "stamina_per_minute": self.stamina_per_minute,
             "stamina_name": self.stamina_name,
+            "login_reminder_hours": self.login_reminder_hours,
             "last_login": self.last_login.isoformat() if self.last_login else None,
             "last_stamina": self.last_stamina,
         }
@@ -133,6 +144,7 @@ class Game:
             max_stamina=data.get("max_stamina", 100),
             stamina_per_minute=data.get("stamina_per_minute", 0.2),
             stamina_name=data.get("stamina_name", "體力"),
+            login_reminder_hours=data.get("login_reminder_hours"),
             last_login=last_login,
             last_stamina=data.get("last_stamina"),
         )
@@ -147,6 +159,7 @@ DEFAULT_GAMES: list[dict] = [
         "max_stamina": 240,
         "stamina_per_minute": 1/6,  # 6 分鐘回 1 點
         "stamina_name": "AP",
+        "login_reminder_hours": 20.0,
     },
     {
         "id": "wuthering_waves",
@@ -154,6 +167,7 @@ DEFAULT_GAMES: list[dict] = [
         "max_stamina": 240,
         "stamina_per_minute": 1/6,  # 6 分鐘回 1 點
         "stamina_name": "結晶波片",
+        "login_reminder_hours": 20.0,
     },
     {
         "id": "fgo",
@@ -161,6 +175,7 @@ DEFAULT_GAMES: list[dict] = [
         "max_stamina": 140,  # 依等級不同，這是大約值
         "stamina_per_minute": 1/5,  # 5 分鐘回 1 點
         "stamina_name": "體力",
+        "login_reminder_hours": 20.0,
     },
     {
         "id": "nikke",
@@ -168,6 +183,7 @@ DEFAULT_GAMES: list[dict] = [
         "max_stamina": 24,
         "stamina_per_minute": 1/60,  # 6 分鐘回 1 點
         "stamina_name": "基地點數",
+        "login_reminder_hours": 20.0,
     },
     {
         "id": "star_rail",
@@ -175,5 +191,14 @@ DEFAULT_GAMES: list[dict] = [
         "max_stamina": 300,
         "stamina_per_minute": 1/6,  # 6 分鐘回 1 點
         "stamina_name": "開拓力",
+        "login_reminder_hours": 20.0,
+    },
+    {
+        "id": "pgr",
+        "name": "戰雙帕彌什",
+        "max_stamina": 240,
+        "stamina_per_minute": 1/6,  # 6 分鐘回 1 點
+        "stamina_name": "體力",
+        "login_reminder_hours": 20.0,
     },
 ]

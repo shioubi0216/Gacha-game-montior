@@ -35,18 +35,24 @@ class GameCard(ft.Container):
             self._get_login_display(),
             size=12,
             color=ft.Colors.WHITE70,
+            no_wrap=True,
+            overflow=ft.TextOverflow.ELLIPSIS,
         )
 
         self.stamina_text = ft.Text(
             self._get_stamina_display(),
             size=14,
             color=ft.Colors.CYAN_200,
+            no_wrap=True,
+            overflow=ft.TextOverflow.ELLIPSIS,
         )
-        
+
         self.time_until_full_text = ft.Text(
             self._get_time_until_full_display(),
             size=12,
             color=ft.Colors.GREEN_300,
+            no_wrap=True,
+            overflow=ft.TextOverflow.ELLIPSIS,
         )
 
         # Flet 0.80+: 使用 ft.Button 代替 ElevatedButton
@@ -115,6 +121,7 @@ class GameCard(ft.Container):
             border_radius=12,
             padding=16,
             width=300,
+            height=190,
         )
 
     def _get_login_display(self) -> str:
@@ -132,25 +139,29 @@ class GameCard(ft.Container):
         return f"⚡ {self.game.stamina_name}：-- / {self.game.max_stamina}"
     
     def _get_time_until_full_display(self) -> str:
+        # 優先顯示登入提醒（體力已滿 + 超時未登入）
+        if self.game.is_login_overdue():
+            return "🔴 太久沒登入了！"
+
         current = self.game.get_current_stamina()
-        
+
         if current is None:
             return "⏰ 請記錄體力以顯示預估"
-        
+
         if current >= self.game.max_stamina:
             return "⏰ 體力已滿，快去玩！"
-        
+
         time_left = self.game.get_time_until_full()
         if time_left is None:
             return ""
-        
+
         full_time = datetime.now() + time_left
         full_time_str = full_time.strftime("%H:%M")
-        
+
         total_minutes = int(time_left.total_seconds() / 60)
         hours = total_minutes // 60
         minutes = total_minutes % 60
-        
+
         if hours > 0:
             return f"⏰ 預計 {full_time_str} 滿（{hours}時{minutes}分後）"
         else:
@@ -168,13 +179,20 @@ class GameCard(ft.Container):
         self.last_login_text.value = self._get_login_display()
         self.stamina_text.value = self._get_stamina_display()
         self.time_until_full_text.value = self._get_time_until_full_display()
-        
-        current = self.game.get_current_stamina()
-        if current is not None and current >= self.game.max_stamina:
+
+        if self.game.is_login_overdue():
+            # 超時未登入：紅色邊框 + 紅色提示
+            self.border = ft.border.all(1, ft.Colors.RED_400)
+            self.time_until_full_text.color = ft.Colors.RED_400
             self.stamina_text.color = ft.Colors.GREEN_400
-            self.time_until_full_text.color = ft.Colors.ORANGE_400
         else:
-            self.stamina_text.color = ft.Colors.CYAN_200
-            self.time_until_full_text.color = ft.Colors.GREEN_300
-        
+            self.border = ft.border.all(1, ft.Colors.WHITE24)
+            current = self.game.get_current_stamina()
+            if current is not None and current >= self.game.max_stamina:
+                self.stamina_text.color = ft.Colors.GREEN_400
+                self.time_until_full_text.color = ft.Colors.ORANGE_400
+            else:
+                self.stamina_text.color = ft.Colors.CYAN_200
+                self.time_until_full_text.color = ft.Colors.GREEN_300
+
         self.update()

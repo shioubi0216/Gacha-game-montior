@@ -10,6 +10,7 @@ import threading
 import time
 from typing import Callable, List, Set
 from datetime import datetime
+from datetime import datetime
 
 # plyer 用於跨平台通知
 try:
@@ -67,6 +68,7 @@ class NotificationService:
         while self._running:
             try:
                 self._check_stamina()
+                self._check_login_reminders()
                 if self._on_check_callback:
                     self._on_check_callback()
             except Exception as e:
@@ -113,6 +115,37 @@ class NotificationService:
         except Exception as e:
             print(f"發送通知失敗: {e}")
     
+    def _check_login_reminders(self) -> None:
+        """檢查是否有遊戲太久沒登入"""
+        for game in self._games:
+            if game.is_login_overdue():
+                reminder_key = f"login_{game.id}"
+                if reminder_key not in self._notified_games:
+                    self._send_login_reminder(game)
+                    self._notified_games.add(reminder_key)
+            else:
+                self._notified_games.discard(f"login_{game.id}")
+
+    def _send_login_reminder(self, game) -> None:
+        """發送登入提醒通知"""
+        if not PLYER_AVAILABLE:
+            print(f"[模擬通知] {game.name} 太久沒登入了！")
+            return
+
+        hours = 0
+        if game.last_login:
+            hours = int((datetime.now() - game.last_login).total_seconds() / 3600)
+        try:
+            notification.notify(
+                title=f"🎮 {game.name} 登入提醒",
+                message=f"已經 {hours} 小時沒有開啟 {game.name} 了！",
+                app_name="Gacha Game Monitor",
+                timeout=10,
+            )
+            print(f"已發送登入提醒: {game.name}")
+        except Exception as e:
+            print(f"發送登入提醒失敗: {e}")
+
     def reset_notification(self, game_id: str) -> None:
         """重置特定遊戲的通知狀態（記錄新體力後呼叫）"""
         self._notified_games.discard(game_id)

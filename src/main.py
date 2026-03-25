@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from models import Game, DEFAULT_GAMES
 from views import GameCard
 from controllers import GameController
-from services import SettingsService, NotificationService, TrayService
+from services import SettingsService, NotificationService, TrayService, ProcessMonitor
 
 
 def main(page: ft.Page) -> None:
@@ -40,7 +40,9 @@ def main(page: ft.Page) -> None:
     settings = SettingsService(settings_path="data/settings.json")
     notification_service = NotificationService(check_interval=60)
     notification_service.set_games(games)
-    
+
+    process_monitor = ProcessMonitor(check_interval=5.0)
+
     # ========== 狀態追蹤 ==========
     state = {
         "page_ready": False,
@@ -110,6 +112,9 @@ def main(page: ft.Page) -> None:
         def save_path(e):
             if path_field.value:
                 controller.update_game_path(game.id, path_field.value)
+                # 同步更新進程監控
+                process_monitor.watch(game.id, path_field.value)
+                process_monitor.on_process_exit(game.id, _make_exit_callback(game.id))
                 status_text.value = f"✅ 已更新 {game.name} 的路徑"
                 status_text.color = ft.Colors.GREEN_400
             dialog.open = False
@@ -184,6 +189,87 @@ def main(page: ft.Page) -> None:
         page.overlay.append(dialog)
         dialog.open = True
         page.update()
+
+    # ========== 進程監控：遊戲關閉時自動彈窗 ==========
+
+    def show_game_closed_prompt(game_id: str) -> None:
+        """遊戲關閉後自動彈出體力記錄提示"""
+        game = next((g for g in games if g.id == game_id), None)
+        if not game:
+            return
+
+        # 先自動記錄登入時間
+        from datetime import datetime
+        game.last_login = datetime.now()
+        controller.save_games()
+
+        stamina_field = ft.TextField(
+            label=f"目前的 {game.stamina_name}",
+            hint_text=f"0 ~ {game.max_stamina}",
+            width=200,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            autofocus=True,
+        )
+        error_text = ft.Text("", size=12, color=ft.Colors.RED_400)
+
+        def close_dialog(e):
+            dialog.open = False
+            refresh_cards()
+            page.update()
+
+        def save_stamina(e):
+            try:
+                stamina = int(stamina_field.value)
+                if stamina < 0 or stamina > game.max_stamina:
+                    error_text.value = f"請輸入 0 ~ {game.max_stamina} 之間的數字"
+                    page.update()
+                    return
+                controller.record_login(game, stamina)
+                notification_service.reset_notification(game.id)
+                status_text.value = f"✅ 已自動記錄 {game.name} 的 {game.stamina_name}：{stamina}"
+                status_text.color = ft.Colors.GREEN_400
+                dialog.open = False
+                refresh_cards()
+                page.update()
+            except ValueError:
+                error_text.value = "請輸入有效的數字"
+                page.update()
+
+        dialog = ft.AlertDialog(
+            title=ft.Text(f"你剛關閉了 {game.name}"),
+            content=ft.Column(
+                controls=[
+                    ft.Text(f"要記錄目前的 {game.stamina_name} 嗎？", size=14),
+                    stamina_field,
+                    error_text,
+                    ft.Text("💡 跳過也會記錄登入時間", size=12, color=ft.Colors.WHITE54),
+                ],
+                tight=True,
+                spacing=10,
+            ),
+            actions=[
+                ft.TextButton("跳過", on_click=close_dialog),
+                ft.Button("儲存", on_click=save_stamina),
+            ],
+        )
+        page.overlay.append(dialog)
+        dialog.open = True
+        page.update()
+
+    async def on_game_exited(game_id: str):
+        """背景執行緒偵測到遊戲關閉時，透過 run_task 在 UI 執行緒彈出對話框"""
+        # 若視窗隱藏中，先恢復顯示
+        if not page.window.visible:
+            page.window.visible = True
+            page.window.focused = True
+            page.update()
+        show_game_closed_prompt(game_id)
+
+    def _make_exit_callback(gid: str):
+        """建立進程結束 callback（確保傳給 run_task 的是 coroutine function）"""
+        async def _handler():
+            await on_game_exited(gid)
+        return lambda game_id: page.run_task(_handler)
 
     # ========== 建立遊戲卡片 ==========
     def create_cards() -> ft.Row:
@@ -310,6 +396,7 @@ def main(page: ft.Page) -> None:
     
     async def quit_application():
         notification_service.stop()
+        process_monitor.stop()
         if state["tray_service"]:
             state["tray_service"].stop()
         await page.window.destroy()
@@ -414,6 +501,14 @@ def main(page: ft.Page) -> None:
     notification_service.on_check(refresh_cards)
     if settings.notifications_enabled:
         notification_service.start()
+
+    # 啟動進程監控
+    if settings.process_monitor_enabled:
+        process_monitor.watch_games(games)
+        for game in games:
+            if game.exe_path:
+                process_monitor.on_process_exit(game.id, _make_exit_callback(game.id))
+        process_monitor.start()
 
 
 if __name__ == "__main__":
