@@ -36,6 +36,10 @@ class Game:
     # 登入提醒
     login_reminder_hours: Optional[float] = None  # None = 不提醒, 例如 20.0 = 20 小時後提醒
 
+    # API 整合
+    api_enabled: bool = False                      # 是否支援 API 即時查詢
+    api_last_sync: Optional[datetime] = None       # 上次 API 同步時間
+
     # 狀態追蹤
     last_login: Optional[datetime] = None     # 上次登入時間
     last_stamina: Optional[int] = None        # 上次登入時的體力值
@@ -125,6 +129,8 @@ class Game:
             "stamina_per_minute": self.stamina_per_minute,
             "stamina_name": self.stamina_name,
             "login_reminder_hours": self.login_reminder_hours,
+            "api_enabled": self.api_enabled,
+            "api_last_sync": self.api_last_sync.isoformat() if self.api_last_sync else None,
             "last_login": self.last_login.isoformat() if self.last_login else None,
             "last_stamina": self.last_stamina,
         }
@@ -136,6 +142,10 @@ class Game:
         if data.get("last_login"):
             last_login = datetime.fromisoformat(data["last_login"])
         
+        api_last_sync = None
+        if data.get("api_last_sync"):
+            api_last_sync = datetime.fromisoformat(data["api_last_sync"])
+
         return cls(
             id=data["id"],
             name=data["name"],
@@ -145,6 +155,8 @@ class Game:
             stamina_per_minute=data.get("stamina_per_minute", 0.2),
             stamina_name=data.get("stamina_name", "體力"),
             login_reminder_hours=data.get("login_reminder_hours"),
+            api_enabled=data.get("api_enabled", False),
+            api_last_sync=api_last_sync,
             last_login=last_login,
             last_stamina=data.get("last_stamina"),
         )
@@ -192,6 +204,7 @@ DEFAULT_GAMES: list[dict] = [
         "stamina_per_minute": 1/6,  # 6 分鐘回 1 點
         "stamina_name": "開拓力",
         "login_reminder_hours": 20.0,
+        "api_enabled": True,  # 支援 HoYoLab API 即時查詢
     },
     {
         "id": "pgr",

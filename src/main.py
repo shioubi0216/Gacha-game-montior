@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from models import Game, DEFAULT_GAMES
 from views import GameCard
 from controllers import GameController
-from services import SettingsService, NotificationService, TrayService, ProcessMonitor
+from services import SettingsService, NotificationService, TrayService, ProcessMonitor, HoYoLabService
 
 
 def main(page: ft.Page) -> None:
@@ -43,10 +43,25 @@ def main(page: ft.Page) -> None:
 
     process_monitor = ProcessMonitor(check_interval=5.0)
 
+    # ========== 初始化 HoYoLab 服務 ==========
+    hoyolab_service: HoYoLabService | None = None
+
+    def _init_hoyolab() -> HoYoLabService | None:
+        """根據設定初始化 HoYoLab 服務"""
+        if settings.hoyolab_enabled and settings.hoyolab_ltuid and settings.hoyolab_ltoken:
+            return HoYoLabService(
+                ltuid=settings.hoyolab_ltuid,
+                ltoken=settings.hoyolab_ltoken,
+            )
+        return None
+
+    hoyolab_service = _init_hoyolab()
+
     # ========== 狀態追蹤 ==========
     state = {
         "page_ready": False,
         "tray_service": None,
+        "hoyolab_service": hoyolab_service,
     }
 
     # ========== UI 元件 ==========
@@ -96,6 +111,58 @@ def main(page: ft.Page) -> None:
                 status_text.color = ft.Colors.RED_400
         refresh_cards()
         page.update()
+
+    # ========== HoYoLab API 回調 ==========
+
+    def on_hoyolab_update(data: dict) -> None:
+        """HoYoLab API 查詢成功時的回調"""
+        star_rail = controller.get_game_by_id("star_rail")
+        if not star_rail:
+            return
+
+        from datetime import datetime
+        star_rail.last_stamina = data["current"]
+        star_rail.max_stamina = data["max"]
+        star_rail.last_login = datetime.now()
+        star_rail.api_last_sync = datetime.now()
+        controller.save_games()
+
+        if state["page_ready"]:
+            try:
+                refresh_cards()
+                page.update()
+            except Exception:
+                pass
+
+    def on_sync_stamina(game: Game) -> None:
+        """手動觸發 HoYoLab 同步"""
+        svc = state.get("hoyolab_service")
+        if not svc:
+            status_text.value = "⚠️ 請先在設定中配置 HoYoLab API"
+            status_text.color = ft.Colors.ORANGE_400
+            page.update()
+            return
+
+        status_text.value = "🔄 正在從 HoYoLab 同步..."
+        status_text.color = ft.Colors.CYAN_400
+        page.update()
+
+        import threading
+        def _do_sync():
+            result = svc.fetch_stamina()
+            if result:
+                on_hoyolab_update(result)
+                status_text.value = f"✅ 已同步星穹鐵道開拓力：{result['current']} / {result['max']}"
+                status_text.color = ft.Colors.GREEN_400
+            else:
+                status_text.value = "❌ HoYoLab 同步失敗，請檢查 Cookie 是否過期"
+                status_text.color = ft.Colors.RED_400
+            try:
+                page.update()
+            except Exception:
+                pass
+
+        threading.Thread(target=_do_sync, daemon=True).start()
 
     def show_path_dialog(game: Game) -> None:
         path_field = ft.TextField(
@@ -279,6 +346,7 @@ def main(page: ft.Page) -> None:
                 game=game,
                 on_launch=on_launch_game,
                 on_record_stamina=show_stamina_dialog,
+                on_sync_stamina=on_sync_stamina,
             )
             game_cards.append(card)
         return ft.Row(
@@ -290,6 +358,32 @@ def main(page: ft.Page) -> None:
         )
 
     cards_container = create_cards()
+
+    # ========== HoYoLab 服務管理 ==========
+
+    def _restart_hoyolab_service() -> None:
+        """重新啟動或停止 HoYoLab 服務"""
+        # 停止舊的
+        old_svc = state.get("hoyolab_service")
+        if old_svc:
+            old_svc.stop()
+            state["hoyolab_service"] = None
+
+        # 啟動新的
+        if settings.hoyolab_enabled and settings.hoyolab_ltuid and settings.hoyolab_ltoken:
+            svc = HoYoLabService(
+                ltuid=settings.hoyolab_ltuid,
+                ltoken=settings.hoyolab_ltoken,
+            )
+            state["hoyolab_service"] = svc
+            # 立即查詢一次再啟動定時
+            import threading
+            def _initial_fetch():
+                result = svc.fetch_stamina()
+                if result:
+                    on_hoyolab_update(result)
+            threading.Thread(target=_initial_fetch, daemon=True).start()
+            svc.start(interval=settings.hoyolab_interval, callback=on_hoyolab_update)
 
     # ========== 設定面板 ==========
     def show_settings(e) -> None:
@@ -338,6 +432,87 @@ def main(page: ft.Page) -> None:
                 status_text.color = ft.Colors.RED_400
             page.update()
 
+        # ---- HoYoLab 設定區塊 ----
+        hoyolab_switch = ft.Switch(
+            value=settings.hoyolab_enabled,
+            active_color=ft.Colors.CYAN_400,
+        )
+        hoyolab_ltuid_field = ft.TextField(
+            label="ltuid_v2",
+            hint_text="從 HoYoLab Cookie 取得的 ltuid_v2 值",
+            value=settings.hoyolab_ltuid or "",
+            width=460,
+        )
+        hoyolab_ltoken_field = ft.TextField(
+            label="ltoken_v2",
+            hint_text="從 HoYoLab Cookie 取得的 ltoken_v2 值",
+            value=settings.hoyolab_ltoken or "",
+            width=460,
+            password=True,
+            can_reveal_password=True,
+        )
+        hoyolab_status_text = ft.Text("", size=12)
+
+        def toggle_hoyolab(e):
+            settings.hoyolab_enabled = hoyolab_switch.value
+            _restart_hoyolab_service()
+
+        hoyolab_switch.on_change = toggle_hoyolab
+
+        def save_hoyolab_settings(e):
+            ltuid_val = hoyolab_ltuid_field.value.strip()
+            ltoken_val = hoyolab_ltoken_field.value.strip()
+
+            if not ltuid_val or not ltoken_val:
+                hoyolab_status_text.value = "⚠️ ltuid_v2 和 ltoken_v2 都必須填寫"
+                hoyolab_status_text.color = ft.Colors.ORANGE_400
+                page.update()
+                return
+
+            settings.hoyolab_ltuid = ltuid_val
+            settings.hoyolab_ltoken = ltoken_val
+            settings.hoyolab_enabled = True
+            hoyolab_switch.value = True
+            _restart_hoyolab_service()
+
+            hoyolab_status_text.value = "✅ 已儲存 HoYoLab 設定"
+            hoyolab_status_text.color = ft.Colors.GREEN_400
+            page.update()
+
+        def test_hoyolab(e):
+            ltuid_val = hoyolab_ltuid_field.value.strip()
+            ltoken_val = hoyolab_ltoken_field.value.strip()
+
+            if not ltuid_val or not ltoken_val:
+                hoyolab_status_text.value = "⚠️ 請先填寫 ltuid_v2 和 ltoken_v2"
+                hoyolab_status_text.color = ft.Colors.ORANGE_400
+                page.update()
+                return
+
+            hoyolab_status_text.value = "🔄 測試連線中..."
+            hoyolab_status_text.color = ft.Colors.CYAN_400
+            page.update()
+
+            import threading
+            def _do_test():
+                test_svc = HoYoLabService(
+                    ltuid=ltuid_val,
+                    ltoken=ltoken_val,
+                )
+                result = test_svc.fetch_stamina()
+                if result:
+                    hoyolab_status_text.value = f"✅ 連線成功！開拓力：{result['current']} / {result['max']}"
+                    hoyolab_status_text.color = ft.Colors.GREEN_400
+                else:
+                    hoyolab_status_text.value = "❌ 連線失敗，請檢查 ltuid_v2 和 ltoken_v2"
+                    hoyolab_status_text.color = ft.Colors.RED_400
+                try:
+                    page.update()
+                except Exception:
+                    pass
+
+            threading.Thread(target=_do_test, daemon=True).start()
+
         settings_dialog = ft.AlertDialog(
             title=ft.Text("設定"),
             content=ft.Container(
@@ -353,13 +528,31 @@ def main(page: ft.Page) -> None:
                         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                         ft.Button("測試通知", icon=ft.Icons.NOTIFICATIONS, on_click=test_notification),
                         ft.Divider(),
+                        ft.Text("HoYoLab API（星穹鐵道）", weight=ft.FontWeight.BOLD),
+                        ft.Row([
+                            ft.Text("啟用即時體力查詢"),
+                            hoyolab_switch,
+                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                        hoyolab_ltuid_field,
+                        hoyolab_ltoken_field,
+                        ft.Row([
+                            ft.Button("測試連線", icon=ft.Icons.WIFI, on_click=test_hoyolab),
+                            ft.Button("儲存", icon=ft.Icons.SAVE, on_click=save_hoyolab_settings),
+                        ], spacing=8),
+                        hoyolab_status_text,
+                        ft.Text(
+                            "💡 HoYoLab 登入後，從瀏覽器 DevTools → Application → Cookies 取得",
+                            size=11,
+                            color=ft.Colors.WHITE54,
+                        ),
+                        ft.Divider(),
                         ft.Text("其他設定", weight=ft.FontWeight.BOLD),
                         ft.TextButton("重置「關閉視窗」行為", on_click=reset_close_behavior),
                     ],
                     scroll=ft.ScrollMode.AUTO,
                 ),
                 width=500,
-                height=450,
+                height=500,
             ),
             actions=[ft.TextButton("關閉", on_click=close_settings)],
         )
@@ -397,6 +590,8 @@ def main(page: ft.Page) -> None:
     async def quit_application():
         notification_service.stop()
         process_monitor.stop()
+        if state.get("hoyolab_service"):
+            state["hoyolab_service"].stop()
         if state["tray_service"]:
             state["tray_service"].stop()
         await page.window.destroy()
@@ -509,6 +704,22 @@ def main(page: ft.Page) -> None:
             if game.exe_path:
                 process_monitor.on_process_exit(game.id, _make_exit_callback(game.id))
         process_monitor.start()
+
+    # 啟動 HoYoLab 服務
+    if state.get("hoyolab_service"):
+        state["hoyolab_service"].start(
+            interval=settings.hoyolab_interval,
+            callback=on_hoyolab_update,
+        )
+        # 啟動時立即查詢一次
+        import threading
+        def _initial_hoyolab_fetch():
+            svc = state.get("hoyolab_service")
+            if svc:
+                result = svc.fetch_stamina()
+                if result:
+                    on_hoyolab_update(result)
+        threading.Thread(target=_initial_hoyolab_fetch, daemon=True).start()
 
 
 if __name__ == "__main__":

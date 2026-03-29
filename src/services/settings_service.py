@@ -21,6 +21,11 @@ class SettingsService:
         "check_interval_seconds": 60,  # 檢查體力的間隔
         "process_monitor_enabled": True,  # 是否啟用進程監控
         "login_reminder_enabled": True,  # 是否啟用登入提醒
+        # HoYoLab API 設定
+        "hoyolab_enabled": False,
+        "hoyolab_ltuid": None,   # ltuid_v2 值
+        "hoyolab_ltoken": None,  # ltoken_v2 值
+        "hoyolab_interval": 600,  # 查詢間隔秒數（預設 10 分鐘）
     }
     
     def __init__(self, settings_path: str = "data/settings.json"):
@@ -89,3 +94,37 @@ class SettingsService:
     @login_reminder_enabled.setter
     def login_reminder_enabled(self, value: bool) -> None:
         self.set("login_reminder_enabled", value)
+
+    # ===== HoYoLab API 設定 =====
+
+    @property
+    def hoyolab_enabled(self) -> bool:
+        return self.settings.get("hoyolab_enabled", False)
+
+    @hoyolab_enabled.setter
+    def hoyolab_enabled(self, value: bool) -> None:
+        self.set("hoyolab_enabled", value)
+
+    @property
+    def hoyolab_ltuid(self) -> str | None:
+        return self.settings.get("hoyolab_ltuid")
+
+    @hoyolab_ltuid.setter
+    def hoyolab_ltuid(self, value: str | None) -> None:
+        self.set("hoyolab_ltuid", value)
+
+    @property
+    def hoyolab_ltoken(self) -> str | None:
+        return self.settings.get("hoyolab_ltoken")
+
+    @hoyolab_ltoken.setter
+    def hoyolab_ltoken(self, value: str | None) -> None:
+        self.set("hoyolab_ltoken", value)
+
+    @property
+    def hoyolab_interval(self) -> int:
+        return self.settings.get("hoyolab_interval", 600)
+
+    @hoyolab_interval.setter
+    def hoyolab_interval(self, value: int) -> None:
+        self.set("hoyolab_interval", value)

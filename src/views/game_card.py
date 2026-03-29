@@ -18,10 +18,12 @@ class GameCard(ft.Container):
         game: Game,
         on_launch: Optional[Callable[[Game], None]] = None,
         on_record_stamina: Optional[Callable[[Game], None]] = None,
+        on_sync_stamina: Optional[Callable[[Game], None]] = None,
     ):
         self.game = game
         self.on_launch = on_launch
         self.on_record_stamina = on_record_stamina
+        self.on_sync_stamina = on_sync_stamina
 
         # 建立 UI 元素
         self.name_text = ft.Text(
@@ -76,6 +78,29 @@ class GameCard(ft.Container):
             ),
         )
 
+        # API 同步按鈕（僅 API 啟用的遊戲顯示）
+        self.sync_button = ft.IconButton(
+            icon=ft.Icons.SYNC,
+            icon_color=ft.Colors.CYAN_300,
+            tooltip="從 HoYoLab 同步",
+            on_click=self._handle_sync_stamina,
+            visible=game.api_enabled,
+        )
+
+        # API 同步狀態標記
+        self.api_badge = ft.Text(
+            "",
+            size=10,
+            color=ft.Colors.CYAN_300,
+            visible=False,
+        )
+
+        # 按鈕區組合
+        button_controls = []
+        if game.api_enabled:
+            button_controls.append(self.sync_button)
+        button_controls.extend([self.record_button, self.launch_button])
+
         # 組合元件
         super().__init__(
             content=ft.Column(
@@ -89,6 +114,7 @@ class GameCard(ft.Container):
                                 size=24,
                             ),
                             self.name_text,
+                            self.api_badge,
                         ],
                         alignment=ft.MainAxisAlignment.START,
                     ),
@@ -106,10 +132,7 @@ class GameCard(ft.Container):
                     ),
                     # 按鈕區
                     ft.Row(
-                        controls=[
-                            self.record_button,
-                            self.launch_button,
-                        ],
+                        controls=button_controls,
                         alignment=ft.MainAxisAlignment.END,
                         spacing=8,
                     ),
@@ -175,10 +198,26 @@ class GameCard(ft.Container):
         if self.on_record_stamina:
             self.on_record_stamina(self.game)
 
+    def _handle_sync_stamina(self, e: ft.ControlEvent) -> None:
+        if self.on_sync_stamina:
+            self.on_sync_stamina(self.game)
+
     def refresh(self) -> None:
         self.last_login_text.value = self._get_login_display()
         self.stamina_text.value = self._get_stamina_display()
         self.time_until_full_text.value = self._get_time_until_full_display()
+
+        # API 同步狀態標記
+        if self.game.api_enabled and self.game.api_last_sync:
+            elapsed = (datetime.now() - self.game.api_last_sync).total_seconds()
+            if elapsed < 660:  # 11 分鐘內視為即時
+                self.api_badge.value = "🔄 即時"
+                self.api_badge.visible = True
+            else:
+                self.api_badge.value = ""
+                self.api_badge.visible = False
+        else:
+            self.api_badge.visible = False
 
         if self.game.is_login_overdue():
             # 超時未登入：紅色邊框 + 紅色提示

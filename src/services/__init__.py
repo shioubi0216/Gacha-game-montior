@@ -4,10 +4,12 @@ from .process_monitor import ProcessMonitor
 from .settings_service import SettingsService
 from .notification_service import NotificationService
 from .tray_service import TrayService
+from .hoyolab_service import HoYoLabService
 
 __all__ = [
     "ProcessMonitor",
-    "SettingsService", 
+    "SettingsService",
     "NotificationService",
     "TrayService",
+    "HoYoLabService",
 ]

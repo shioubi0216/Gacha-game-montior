@@ -10,6 +10,7 @@
 - **pystray + Pillow**：系統托盤
 - **plyer**：Windows 通知
 - **psutil**：行程監控（偵測遊戲啟動/關閉）
+- **genshin.py**：HoYoLab API 套件（星穹鐵道即時體力查詢）
 - 架構：**MVC**，資料持久化用 **JSON**
 
 ## ⚠️ Flet 0.80+ 重要注意事項
@@ -30,7 +31,8 @@ src/
     ├── notification_service.py     # Windows 通知（plyer）
     ├── settings_service.py         # 設定持久化
     ├── tray_service.py             # 系統托盤（pystray）
-    └── process_monitor.py          # 進程監控（threading + psutil）
+    ├── process_monitor.py          # 進程監控（threading + psutil）
+    └── hoyolab_service.py          # HoYoLab API 即時體力查詢（genshin.py）
 data/
 ├── games.json    # 使用者資料（gitignore，勿覆蓋）
 └── settings.json
@@ -66,12 +68,25 @@ data/
 - ✅ Phase 1：MVP 啟動器
 - ✅ Phase 2：體力追蹤、系統托盤、Windows 通知、Flet 0.80+ 相容
 - ✅ Phase 3：進程監控、關閉遊戲自動彈窗記錄體力、登入提醒通知、過期卡片紅框
+- ✅ Phase 3.5：HoYoLab API 整合（星穹鐵道即時開拓力查詢）、遊戲啟動 UAC 修復
 - 🔮 Phase 4：PyInstaller 打包成 .exe
+
+## 開發慣例（HoYoLab API）
+- 使用 `genshin.py` 套件（非手刻 HTTP），處理 DS 簽名和認證
+- 認證需要 `ltuid_v2` + `ltoken_v2`（從瀏覽器 DevTools → Application → Cookies 取得）
+- HoYoLabService 用 threading.Timer 定時查詢（預設 10 分鐘），與其他 service 一致
+- `fetch_stamina()` 內部用 `asyncio.new_event_loop()` 包裝 async 呼叫為同步
+- Token 存在 `data/settings.json`（已 gitignore），明文儲存
+- Game model 的 `api_enabled` 欄位標記支援 API 的遊戲，目前僅 star_rail
+- 卡片上的「🔄 即時」標記在 API 同步後 11 分鐘內顯示
+
+## 開發慣例（遊戲啟動）
+- Windows 用 `ShellExecuteW` 啟動遊戲（非 subprocess），自動處理 UAC 提權
+- 某些遊戲（如星穹鐵道）的 exe 需要管理員權限才能啟動
 
 ## 未來優化方向（按優先度）
 
 ### 高價值（建議優先）
-- **HoYoLab API 整合**：星穹鐵道即時體力查詢（endpoint: `bbs-api-os.hoyolab.com/game_record/hkrpg/api/note`），需使用者提供 cookie/token
 - **PyInstaller 打包 .exe**：讓朋友不裝 Python 也能用
 - **自訂遊戲支持**：UI 讓使用者自行新增遊戲（名稱、體力上限、回復速率）
 

@@ -99,13 +99,17 @@ class GameController:
             return False
         
         try:
-            # 使用 subprocess 啟動遊戲
-            # shell=False 較安全，不會受到 shell injection 攻擊
-            subprocess.Popen(
-                [str(exe_path)],
-                shell=False,
-                creationflags=subprocess.DETACHED_PROCESS if os.name == 'nt' else 0
-            )
+            if os.name == 'nt':
+                # Windows：使用 ShellExecuteW 啟動，自動處理 UAC 提權
+                import ctypes
+                ctypes.windll.shell32.ShellExecuteW(
+                    None, "open", str(exe_path), None, str(exe_path.parent), 1
+                )
+            else:
+                subprocess.Popen(
+                    [str(exe_path)],
+                    shell=False,
+                )
             
             # 記錄登入時間
             game.record_login()
